@@ -28,5 +28,19 @@ go.work.sum
 .env
 
 # Editor/IDE
-# .idea/
-# .vscode/
+.idea/
+.vscode/
+
+# Local build/cache artifacts
+bin/
+.gocache/
+.gopath/
+cover.html
+
+# macOS Finder
+.DS_Store
+
+# Common editor swap files
+*~
+*.swp
+*.swo
