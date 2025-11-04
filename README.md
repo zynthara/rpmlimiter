@@ -27,6 +27,8 @@ rpmlimiter — Go RPM limiter with dynamic concurrency and auto‑tuning
 - Example: `go run ./cmd/example -rpm 600 -concurrency 64 -auto -duration 15s -workers 32 -work 15ms -jitter 10ms`
  - Stats output fields (periodic): `rpm`, `conc`, `avail`, `window`, `active`, `waiting`, `total`, `rejected`.
    Example: `[stats] rpm=600 conc=64 avail=12 window=588 active=22 waiting=0 total=12345 rejected=0`
+ - Diagnostics flags: `-diag` (enable), `-diag-interval 1s` (sampling interval). Example:
+   `go run ./cmd/example -rpm 5000 -concurrency 1000 -duration 60s -workers 64 -diag -diag-interval 1s`
 
 **API**
 - Construction
@@ -40,6 +42,10 @@ rpmlimiter — Go RPM limiter with dynamic concurrency and auto‑tuning
   - `Available() int` — instantaneous available slots (RPM and concurrency combined).
   - `GetStats() Stats` — snapshot of counters.
   - `GetConfigSnapshot() (rpm, maxConc int, window time.Duration)`.
+- Diagnostics
+  - `StartDiagnostics(opts DiagnosticOptions) (stop func())` — periodic snapshots (RPS, utilization, bottleneck); returns `stop()`.
+  - `DiagnoseOnce() DiagnosticSnapshot` — single snapshot now.
+  - `DiagnosticSnapshot` fields include: `RPS`, `RPM`, `WindowCount`, `RPMUtilization`, `Active`, `Waiting`, `Concurrency`, `Available`, `RPMAvailable`, `ConcurrencyAvailable`, `EstimatedServiceTimeSeconds`, `P95Seconds`/`P95Valid`, `Bottleneck`.
 - Dynamic tuning
   - `SetRPM(newRPM int) (old int, err error)` — safe at runtime; wakes waiters if capacity increases.
   - `SetMaxConcurrency(newMax int) (old int, err error)` — hot‑switch semaphore without disrupting inflight.
@@ -81,6 +87,28 @@ rpmlimiter — Go RPM limiter with dynamic concurrency and auto‑tuning
 - `WindowCount` — number of requests currently counted in the sliding time window (used slots).
  - Reset behavior: `ResetStats()` zeros cumulative counters only; instantaneous metrics (`WaitingRequests`, `ActiveRequests`) and derived fields (`RPM`, `Concurrency`, `WindowCount`) are unchanged.
 
+**Diagnostics**
+- Purpose
+  - Quickly see if RPM is saturated, concurrency is the bottleneck, or the system is under‑utilized.
+  - Estimates average service time via Little's Law: `W ≈ Active / RPS`; surfaces internal p95 (if auto‑tune sampling enabled).
+- Usage
+  - `stop := l.StartDiagnostics(rpmlimiter.DiagnosticOptions{Interval: time.Second, OnSnapshot: func(s rpmlimiter.DiagnosticSnapshot) {
+        fmt.Printf("diag: rps=%.1f rpm=%d util=%.2f active=%d wait=%d conc=%d avail=%d(rpm=%d conc=%d) W≈%.2fs p95=%.2fs ok=%v bottleneck=%s\n",
+            s.RPS, s.RPM, s.RPMUtilization, s.Active, s.Waiting,
+            s.Concurrency, s.Available, s.RPMAvailable, s.ConcurrencyAvailable,
+            s.EstimatedServiceTimeSeconds, s.P95Seconds, s.P95Valid, s.Bottleneck)
+    }})`
+  - `defer stop()` to end sampling.
+- Bottleneck classification
+  - `rpm` — RPM window full (`WindowCount≈RPM`) while concurrency has headroom.
+  - `concurrency` — concurrency slots full while RPM window has headroom.
+  - `both(rpm+concurrency)` — both saturated.
+  - `underutilized` — capacity available and no waiters.
+  - `unknown` — transitional or not classifiable.
+ - Sample output
+   - `diag: rps=6.8 rpm=5000 util=0.08 active=70 wait=0 conc=80 avail=0(rpm=4600 conc=0) W≈10.3s p95=1.05s ok=true bottleneck=concurrency`
+     (Concurrency‑limited: RPM has headroom `rpmAvail=4600`, concurrency full `concAvail=0`.)
+
 **Examples**
 - With auto‑tune
   - `cfg := rpmlimiter.Config{RPM: 600, MaxConcurrency: 64, Window: time.Minute}`
@@ -96,7 +124,9 @@ rpmlimiter — Go RPM limiter with dynamic concurrency and auto‑tuning
 - `make test` — run tests with `-race`.
 - `make cover` — generate `cover.out` and `cover.html`.
 - `make gofmt` — check formatting (no write).
-- `make example ARGS="..."` — run example via `go run` (e.g., `make example ARGS="-rpm 600 -concurrency 64 -duration 15s -workers 32"`).
+- `make example ARGS="..."` — run example via `go run`.
+  - Basic: `make example ARGS="-rpm 600 -concurrency 64 -duration 15s -workers 32"`
+  - With diagnostics: `make example ARGS="-rpm 5000 -concurrency 1000 -duration 60s -workers 64 -diag -diag-interval 1s"`
 - `make build-example` — build example binary to `./bin/rpmlimiter-example`.
 - `make run-example ARGS="..."` — build then run the example binary.
 
@@ -107,6 +137,7 @@ rpmlimiter — Go RPM limiter with dynamic concurrency and auto‑tuning
 
 **Project Files**
 - Code: `rpmlimiter.go:1`
+- Diagnostics: `diagnostics.go:1`
 - Tests: `rpmlimiter_test.go:1`
 - Makefile: `Makefile:1`
 - Module: `go.mod:1`

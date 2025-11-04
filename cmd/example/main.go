@@ -41,6 +41,10 @@ func main() {
 	statsEvery := flag.Duration("stats", 1*time.Second, "Print stats every interval (0=disable)")
 	quiet := flag.Bool("quiet", false, "Less verbose output")
 
+	// Diagnostics
+	diag := flag.Bool("diag", false, "Enable diagnostics output")
+	diagInterval := flag.Duration("diag-interval", time.Second, "Diagnostics interval (e.g. 1s)")
+
 	flag.Parse()
 
     // Create limiter with the simplest constructor: only RPM required.
@@ -74,6 +78,21 @@ func main() {
         }
     }
 	defer l.Close()
+
+	// Optional diagnostics
+	var stopDiag func()
+	if *diag {
+		stopDiag = l.StartDiagnostics(limiter.DiagnosticOptions{
+			Interval: *diagInterval,
+			OnSnapshot: func(s limiter.DiagnosticSnapshot) {
+				fmt.Printf("diag: rps=%.1f rpm=%d util=%.2f active=%d wait=%d conc=%d avail=%d(rpm=%d conc=%d) W≈%.2fs p95=%.2fs ok=%v bottleneck=%s\n",
+					s.RPS, s.RPM, s.RPMUtilization, s.Active, s.Waiting,
+					s.Concurrency, s.Available, s.RPMAvailable, s.ConcurrencyAvailable,
+					s.EstimatedServiceTimeSeconds, s.P95Seconds, s.P95Valid, s.Bottleneck)
+			},
+		})
+		defer stopDiag()
+	}
 
 	// Root context with duration and signal cancel
 	ctx, cancel := context.WithTimeout(context.Background(), *duration)

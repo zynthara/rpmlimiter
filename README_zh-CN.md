@@ -25,6 +25,8 @@ rpmlimiter —— 支持动态并发与自动调参的 Go RPM 限流器
 - 例子：`go run ./cmd/example -rpm 600 -concurrency 64 -auto -duration 15s -workers 32 -work 15ms -jitter 10ms`
  - 周期性统计输出包含字段：`rpm`、`conc`、`avail`、`window`、`active`、`waiting`、`total`、`rejected`。
    示例：`[stats] rpm=600 conc=64 avail=12 window=588 active=22 waiting=0 total=12345 rejected=0`
+ - 诊断开关：`-diag`（启用诊断）、`-diag-interval 1s`（采样间隔）。示例：
+   `go run ./cmd/example -rpm 5000 -concurrency 1000 -duration 60s -workers 64 -diag -diag-interval 1s`
 
 **API**
 - 构造
@@ -38,6 +40,10 @@ rpmlimiter —— 支持动态并发与自动调参的 Go RPM 限流器
   - `Available() int` — 当前（同时考虑 RPM 与并发）的可用名额。
   - `GetStats() Stats` — 指标快照。
   - `GetConfigSnapshot() (rpm, maxConc int, window time.Duration)`。
+- 诊断（Diagnostics）
+  - `StartDiagnostics(opts DiagnosticOptions) (stop func())` — 周期性采样，输出 RPS、窗口利用率与瓶颈分类；返回 `stop()` 关闭。
+  - `DiagnoseOnce() DiagnosticSnapshot` — 立即取单次快照。
+  - `DiagnosticSnapshot` 字段包含：`RPS`、`RPM`、`WindowCount`、`RPMUtilization`、`Active`、`Waiting`、`Concurrency`、`Available`、`RPMAvailable`、`ConcurrencyAvailable`、`EstimatedServiceTimeSeconds`、`P95Seconds`/`P95Valid`、`Bottleneck`。
 - 动态调参
   - `SetRPM(newRPM int) (old int, err error)` — 运行时安全；上调会按空档唤醒等待者。
   - `SetMaxConcurrency(newMax int) (old int, err error)` — 热切换信号量，不影响在途请求释放。
@@ -78,6 +84,28 @@ rpmlimiter —— 支持动态并发与自动调参的 Go RPM 限流器
 - `WindowCount` — 当前滑动窗口内的占用计数（已计入窗口的请求数量）。
  - 重置行为：`ResetStats()` 仅清零累计计数；瞬时指标（`WaitingRequests`、`ActiveRequests`）与派生字段（`RPM`、`Concurrency`、`WindowCount`）保持不变。
 
+**诊断（Diagnostics）**
+- 作用
+  - 快速判断是否打满 RPM、是否被并发上限卡住，或是否未吃满（外部瓶颈/工人不足）。
+  - 通过 Little 定律估算平均临界区耗时：`W ≈ Active / RPS`；若开启自动调参，则同时给出内部 p95（如可用）。
+- 用法
+  - `stop := l.StartDiagnostics(rpmlimiter.DiagnosticOptions{ Interval: time.Second, OnSnapshot: func(s rpmlimiter.DiagnosticSnapshot) {
+        fmt.Printf("diag: rps=%.1f rpm=%d util=%.2f active=%d wait=%d conc=%d avail=%d(rpm=%d conc=%d) W≈%.2fs p95=%.2fs ok=%v bottleneck=%s\\n",
+            s.RPS, s.RPM, s.RPMUtilization, s.Active, s.Waiting,
+            s.Concurrency, s.Available, s.RPMAvailable, s.ConcurrencyAvailable,
+            s.EstimatedServiceTimeSeconds, s.P95Seconds, s.P95Valid, s.Bottleneck)
+    }})`
+  - `defer stop()` 结束采样。
+- 瓶颈分类
+  - `rpm` — RPM 窗口已满（`WindowCount≈RPM`），并发仍有余量。
+  - `concurrency` — 并发槽满，而 RPM 窗口仍有余量。
+  - `both(rpm+concurrency)` — 两者同时饱和。
+  - `underutilized` — 存在可用容量且无等待者，多为工人/上游限速导致未吃满。
+  - `unknown` — 过渡期或不可判定。
+ - 输出示例
+   - `diag: rps=6.8 rpm=5000 util=0.08 active=70 wait=0 conc=80 avail=0(rpm=4600 conc=0) W≈10.3s p95=1.05s ok=true bottleneck=concurrency`
+     （并发受限：`rpmAvail=4600` 有余量，而 `concAvail=0` 并发已满。）
+
 **示例**
 - 启用自动调参
   - `cfg := rpmlimiter.Config{RPM: 600, MaxConcurrency: 64, Window: time.Minute}`
@@ -93,7 +121,9 @@ rpmlimiter —— 支持动态并发与自动调参的 Go RPM 限流器
 - `make test` — `-race` 下运行测试。
 - `make cover` — 生成 `cover.out` 与 `cover.html` 覆盖率报告。
 - `make gofmt` — 检查（不修改）代码格式。
-- `make example ARGS="..."` — 通过 `go run` 运行示例（如：`make example ARGS="-rpm 600 -concurrency 64 -duration 15s -workers 32"`）。
+- `make example ARGS="..."` — 通过 `go run` 运行示例。
+  - 基础：`make example ARGS="-rpm 600 -concurrency 64 -duration 15s -workers 32"`
+  - 启用诊断：`make example ARGS="-rpm 5000 -concurrency 1000 -duration 60s -workers 64 -diag -diag-interval 1s"`
 - `make build-example` — 构建示例二进制到 `./bin/rpmlimiter-example`。
 - `make run-example ARGS="..."` — 先构建再运行示例二进制。
 
@@ -104,6 +134,7 @@ rpmlimiter —— 支持动态并发与自动调参的 Go RPM 限流器
 
 **项目文件**
 - 代码：`rpmlimiter.go`
+- 诊断：`diagnostics.go`
 - 测试：`rpmlimiter_test.go`
 - Makefile：`Makefile`
 - 模块：`go.mod`
