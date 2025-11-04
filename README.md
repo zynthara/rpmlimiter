@@ -25,6 +25,8 @@ rpmlimiter — Go RPM limiter with dynamic concurrency and auto‑tuning
 **Example App**
 - Run: `go run ./cmd/example -h`
 - Example: `go run ./cmd/example -rpm 600 -concurrency 64 -auto -duration 15s -workers 32 -work 15ms -jitter 10ms`
+ - Stats output fields (periodic): `rpm`, `conc`, `avail`, `window`, `active`, `waiting`, `total`, `rejected`.
+   Example: `[stats] rpm=600 conc=64 avail=12 window=588 active=22 waiting=0 total=12345 rejected=0`
 
 **API**
 - Construction

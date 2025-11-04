@@ -23,6 +23,8 @@ rpmlimiter —— 支持动态并发与自动调参的 Go RPM 限流器
 **示例程序**
 - 运行：`go run ./cmd/example -h`
 - 例子：`go run ./cmd/example -rpm 600 -concurrency 64 -auto -duration 15s -workers 32 -work 15ms -jitter 10ms`
+ - 周期性统计输出包含字段：`rpm`、`conc`、`avail`、`window`、`active`、`waiting`、`total`、`rejected`。
+   示例：`[stats] rpm=600 conc=64 avail=12 window=588 active=22 waiting=0 total=12345 rejected=0`
 
 **API**
 - 构造
