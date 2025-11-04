@@ -75,8 +75,9 @@ rpmlimiter — Go RPM limiter with dynamic concurrency and auto‑tuning
 - `RejectedRequests` — failed attempts (immediate RPM rejects or canceled/timeout while waiting).
 - `WaitingRequests` — current number of goroutines queued for RPM capacity.
 - `ActiveRequests` — currently active (passed RPM, not yet released).
- - `RPM` — current configured requests‑per‑minute limit.
- - `WindowCount` — number of requests currently counted in the sliding time window (used slots).
+- `RPM` — current configured requests‑per‑minute limit.
+- `Concurrency` — current max concurrency cap (0 = unlimited).
+- `WindowCount` — number of requests currently counted in the sliding time window (used slots).
 
 **Examples**
 - With auto‑tune

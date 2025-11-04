@@ -362,3 +362,31 @@ func TestGetStatsShowsRPMAndWindowCount(t *testing.T) {
         r()
     }
 }
+
+func TestGetStatsShowsConcurrency(t *testing.T) {
+    l := NewWithConfig(Config{RPM: 10, MaxConcurrency: 5, Window: time.Second, ClockFunc: time.Now}, nil)
+    t.Cleanup(l.Close)
+
+    s := l.GetStats()
+    if s.Concurrency != 5 {
+        t.Fatalf("expected Concurrency == 5, got %d", s.Concurrency)
+    }
+
+    // Set to unlimited (0) and verify
+    if _, err := l.SetMaxConcurrency(0); err != nil {
+        t.Fatalf("SetMaxConcurrency(0) failed: %v", err)
+    }
+    s = l.GetStats()
+    if s.Concurrency != 0 {
+        t.Fatalf("expected Concurrency == 0 (unlimited), got %d", s.Concurrency)
+    }
+
+    // Increase again and verify
+    if _, err := l.SetMaxConcurrency(7); err != nil {
+        t.Fatalf("SetMaxConcurrency(7) failed: %v", err)
+    }
+    s = l.GetStats()
+    if s.Concurrency != 7 {
+        t.Fatalf("expected Concurrency == 7, got %d", s.Concurrency)
+    }
+}

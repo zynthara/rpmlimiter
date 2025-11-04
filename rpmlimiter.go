@@ -48,6 +48,7 @@ type Stats struct {
     WaitingRequests  int   // 当前等待 RPM 的请求数
     ActiveRequests   int   // 当前处于激活态（已过RPM闸，且尚未release）的请求数
     RPM              int   // 当前配置的 RPM 上限
+    Concurrency      int   // 当前并发上限（0=不限制）
     WindowCount      int   // 过去一个时间窗口内的请求计数（滑动窗口内的占用数）
 }
 
@@ -347,6 +348,7 @@ func (l *RPMLimiter) GetStats() Stats {
 
     s := l.stats
     s.RPM = l.rpm
+    s.Concurrency = l.maxConcurrency
     s.WindowCount = wc
     return s
 }

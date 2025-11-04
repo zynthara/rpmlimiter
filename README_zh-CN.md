@@ -72,8 +72,9 @@ rpmlimiter —— 支持动态并发与自动调参的 Go RPM 限流器
 - `RejectedRequests` — 尝试失败次数（TryAcquire 失败或 Wait 等待期间的取消/超时）。
 - `WaitingRequests` — 正在排队等待 RPM 的协程数量。
 - `ActiveRequests` — 已过 RPM 且尚未 release 的活跃请求数。
- - `RPM` — 当前配置的每分钟请求上限。
- - `WindowCount` — 当前滑动窗口内的占用计数（已计入窗口的请求数量）。
+- `RPM` — 当前配置的每分钟请求上限。
+- `Concurrency` — 当前并发上限（0 表示不限制）。
+- `WindowCount` — 当前滑动窗口内的占用计数（已计入窗口的请求数量）。
 
 **示例**
 - 启用自动调参
