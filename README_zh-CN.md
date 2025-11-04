@@ -43,6 +43,7 @@ rpmlimiter —— 支持动态并发与自动调参的 Go RPM 限流器
   - `SetMaxConcurrency(newMax int) (old int, err error)` — 热切换信号量，不影响在途请求释放。
   - `SetMinConcurrency(newMin int) (old int, err error)` — 设置自动调参并发下限；若当前并发上限为有限且低于下限，会立即提升至 `newMin`（在途请求安全）。当当前并发为无限制（0）时，不会改为有限上限，仅作为自动调参的下限约束。
   - `StartAutoTune(cfg AutoTuneConfig)` / `StopAutoTune()`。
+  - `ResetStats()` — 重置累计型计数（`TotalRequests`、`RejectedRequests`），不影响瞬时指标。
 - 关闭
   - `Close()` — 唤醒所有等待者并停止后台协程。
 
@@ -75,6 +76,7 @@ rpmlimiter —— 支持动态并发与自动调参的 Go RPM 限流器
 - `RPM` — 当前配置的每分钟请求上限。
 - `Concurrency` — 当前并发上限（0 表示不限制）。
 - `WindowCount` — 当前滑动窗口内的占用计数（已计入窗口的请求数量）。
+ - 重置行为：`ResetStats()` 仅清零累计计数；瞬时指标（`WaitingRequests`、`ActiveRequests`）与派生字段（`RPM`、`Concurrency`、`WindowCount`）保持不变。
 
 **示例**
 - 启用自动调参

@@ -353,6 +353,17 @@ func (l *RPMLimiter) GetStats() Stats {
     return s
 }
 
+// ResetStats 重置累计型指标（如 TotalRequests、RejectedRequests）。
+// 注意：不会修改瞬时指标（WaitingRequests、ActiveRequests）以及派生字段（RPM、Concurrency、WindowCount）。
+// 调用后，新产生的请求将重新累计。
+func (l *RPMLimiter) ResetStats() {
+    l.mu.Lock()
+    l.stats.TotalRequests = 0
+    l.stats.RejectedRequests = 0
+    // 不重置 Waiting/Active：它们反映实时状态，需由请求流更新。
+    l.mu.Unlock()
+}
+
 // SetRPM 动态设置 RPM（>0）；提升 RPM 会按“当前空档”唤醒等待者
 func (l *RPMLimiter) SetRPM(newRPM int) (old int, err error) {
 	if newRPM <= 0 {

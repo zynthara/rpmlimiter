@@ -390,3 +390,47 @@ func TestGetStatsShowsConcurrency(t *testing.T) {
         t.Fatalf("expected Concurrency == 7, got %d", s.Concurrency)
     }
 }
+
+func TestResetStatsResetsCumulativeOnly(t *testing.T) {
+    l := NewWithConfig(Config{RPM: 1, MaxConcurrency: 0, Window: 200 * time.Millisecond, ClockFunc: time.Now}, nil)
+    t.Cleanup(l.Close)
+
+    // Successful acquire increments TotalRequests and ActiveRequests
+    rel, ok := l.TryAcquire()
+    if !ok {
+        t.Fatalf("expected first TryAcquire to succeed")
+    }
+    // Second acquire should be rejected within the same window -> increments RejectedRequests
+    if _, ok := l.TryAcquire(); ok {
+        t.Fatalf("expected second TryAcquire to fail within window")
+    }
+
+    s := l.GetStats()
+    if s.TotalRequests != 1 {
+        t.Fatalf("pre-reset: expected TotalRequests=1, got %d", s.TotalRequests)
+    }
+    if s.RejectedRequests < 1 {
+        t.Fatalf("pre-reset: expected RejectedRequests>=1, got %d", s.RejectedRequests)
+    }
+    if s.ActiveRequests != 1 {
+        t.Fatalf("pre-reset: expected ActiveRequests=1, got %d", s.ActiveRequests)
+    }
+
+    // Reset only cumulative counters
+    l.ResetStats()
+    s2 := l.GetStats()
+    if s2.TotalRequests != 0 || s2.RejectedRequests != 0 {
+        t.Fatalf("post-reset: expected totals to be zero; got total=%d rejected=%d", s2.TotalRequests, s2.RejectedRequests)
+    }
+    // Active should remain unchanged until release
+    if s2.ActiveRequests != 1 {
+        t.Fatalf("post-reset: expected ActiveRequests to remain 1, got %d", s2.ActiveRequests)
+    }
+
+    // Release and Active should drop
+    rel()
+    s3 := l.GetStats()
+    if s3.ActiveRequests != 0 {
+        t.Fatalf("after release: expected ActiveRequests=0, got %d", s3.ActiveRequests)
+    }
+}

@@ -45,6 +45,7 @@ rpmlimiter — Go RPM limiter with dynamic concurrency and auto‑tuning
   - `SetMaxConcurrency(newMax int) (old int, err error)` — hot‑switch semaphore without disrupting inflight.
   - `SetMinConcurrency(newMin int) (old int, err error)` — set auto‑tuner lower bound; bumps current cap up to `newMin` if lower (non‑zero cap).
   - `StartAutoTune(cfg AutoTuneConfig)` / `StopAutoTune()`.
+  - `ResetStats()` — reset cumulative counters (`TotalRequests`, `RejectedRequests`) without affecting instantaneous metrics.
 - Shutdown
   - `Close()` — wakes all waiters and stops background goroutines.
 
@@ -78,6 +79,7 @@ rpmlimiter — Go RPM limiter with dynamic concurrency and auto‑tuning
 - `RPM` — current configured requests‑per‑minute limit.
 - `Concurrency` — current max concurrency cap (0 = unlimited).
 - `WindowCount` — number of requests currently counted in the sliding time window (used slots).
+ - Reset behavior: `ResetStats()` zeros cumulative counters only; instantaneous metrics (`WaitingRequests`, `ActiveRequests`) and derived fields (`RPM`, `Concurrency`, `WindowCount`) are unchanged.
 
 **Examples**
 - With auto‑tune
