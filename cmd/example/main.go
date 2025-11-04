@@ -105,8 +105,8 @@ func main() {
 					s := l.GetStats()
 					r, c, _ := l.GetConfigSnapshot()
 					avail := l.Available()
-					fmt.Printf("[stats] rpm=%d conc=%d avail=%d active=%d waiting=%d total=%d rejected=%d\n",
-						r, c, avail, s.ActiveRequests, s.WaitingRequests, s.TotalRequests, s.RejectedRequests)
+                    fmt.Printf("[stats] rpm=%d conc=%d avail=%d window=%d active=%d waiting=%d total=%d rejected=%d\n",
+                        r, c, avail, s.WindowCount, s.ActiveRequests, s.WaitingRequests, s.TotalRequests, s.RejectedRequests)
 				case <-stopStats:
 					return
 				}
@@ -180,7 +180,7 @@ func main() {
 	s := l.GetStats()
 	r, c, _ := l.GetConfigSnapshot()
 	if !*quiet {
-		fmt.Printf("done. rpm=%d conc=%d total=%d rejected=%d waiting=%d active=%d tryRejects=%d\n",
-			r, c, s.TotalRequests, s.RejectedRequests, s.WaitingRequests, s.ActiveRequests, tryReject)
+    fmt.Printf("done. rpm=%d conc=%d window=%d total=%d rejected=%d waiting=%d active=%d tryRejects=%d\n",
+        r, c, s.WindowCount, s.TotalRequests, s.RejectedRequests, s.WaitingRequests, s.ActiveRequests, tryReject)
 	}
 }
