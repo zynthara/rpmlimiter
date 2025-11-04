@@ -43,10 +43,12 @@ var DefaultAutoTune = AutoTuneConfig{
 
 // Stats 统计信息
 type Stats struct {
-	TotalRequests    int64 // 成功通过 RPM 闸的请求数
-	RejectedRequests int64 // 被拒绝/超时/取消的尝试次数（TryAcquire失败或Wait因ctx取消）
-	WaitingRequests  int   // 当前等待 RPM 的请求数
-	ActiveRequests   int   // 当前处于激活态（已过RPM闸，且尚未release）的请求数
+    TotalRequests    int64 // 成功通过 RPM 闸的请求数
+    RejectedRequests int64 // 被拒绝/超时/取消的尝试次数（TryAcquire失败或Wait因ctx取消）
+    WaitingRequests  int   // 当前等待 RPM 的请求数
+    ActiveRequests   int   // 当前处于激活态（已过RPM闸，且尚未release）的请求数
+    RPM              int   // 当前配置的 RPM 上限
+    WindowCount      int   // 过去一个时间窗口内的请求计数（滑动窗口内的占用数）
 }
 
 // Config 基础限流配置
@@ -328,9 +330,25 @@ func (l *RPMLimiter) Available() int {
 
 // GetStats 返回当前统计快照
 func (l *RPMLimiter) GetStats() Stats {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	return l.stats
+    l.mu.Lock()
+    defer l.mu.Unlock()
+    // 非侵入式计算窗口内计数（不修改 timestamps，避免副作用）
+    now := l.clockFunc()
+    cutoff := now.Add(-l.window)
+    wc := 0
+    // timestamps 按时间递增，找到第一个未过期的位置
+    i := 0
+    for i < len(l.timestamps) && l.timestamps[i].Before(cutoff) {
+        i++
+    }
+    if i < len(l.timestamps) {
+        wc = len(l.timestamps) - i
+    }
+
+    s := l.stats
+    s.RPM = l.rpm
+    s.WindowCount = wc
+    return s
 }
 
 // SetRPM 动态设置 RPM（>0）；提升 RPM 会按“当前空档”唤醒等待者

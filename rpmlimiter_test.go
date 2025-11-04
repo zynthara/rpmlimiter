@@ -327,3 +327,38 @@ func TestSetMinConcurrencyNoBumpWhenUnlimited(t *testing.T) {
         t.Fatalf("expected concurrency to remain unlimited (0); got %d", conc)
     }
 }
+
+func TestGetStatsShowsRPMAndWindowCount(t *testing.T) {
+    l := NewWithConfig(Config{RPM: 3, MaxConcurrency: 0, Window: 50 * time.Millisecond, ClockFunc: time.Now}, nil)
+    t.Cleanup(l.Close)
+
+    // Acquire two within the window
+    var rels []func()
+    for i := 0; i < 2; i++ {
+        rel, ok := l.TryAcquire()
+        if !ok {
+            t.Fatalf("expected TryAcquire #%d to succeed", i+1)
+        }
+        rels = append(rels, rel)
+    }
+
+    s := l.GetStats()
+    if s.RPM != 3 {
+        t.Fatalf("expected GetStats().RPM == 3, got %d", s.RPM)
+    }
+    if s.WindowCount != 2 {
+        t.Fatalf("expected WindowCount == 2, got %d", s.WindowCount)
+    }
+
+    // After window passes, WindowCount should drop to 0
+    time.Sleep(70 * time.Millisecond)
+    s2 := l.GetStats()
+    if s2.WindowCount != 0 {
+        t.Fatalf("expected WindowCount == 0 after window, got %d", s2.WindowCount)
+    }
+
+    // Cleanup
+    for _, r := range rels {
+        r()
+    }
+}
