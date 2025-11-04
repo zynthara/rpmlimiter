@@ -434,3 +434,95 @@ func TestResetStatsResetsCumulativeOnly(t *testing.T) {
         t.Fatalf("after release: expected ActiveRequests=0, got %d", s3.ActiveRequests)
     }
 }
+
+func TestCanceledWaitersDoNotBlockRealWaiters(t *testing.T) {
+    // This test verifies the bug fix: canceled waiters should not waste wake-up slots
+    l := NewWithConfig(Config{RPM: 2, MaxConcurrency: 0, Window: 500 * time.Millisecond, ClockFunc: time.Now}, nil)
+    t.Cleanup(l.Close)
+
+    // Fill RPM window
+    for i := 0; i < 2; i++ {
+        if rel, ok := l.TryAcquire(); !ok {
+            t.Fatalf("expected initial TryAcquire #%d to succeed", i+1)
+        } else {
+            defer rel()
+        }
+    }
+
+    // Start 5 waiters: 3 will be canceled, 2 will remain waiting
+    type res struct {
+        err error
+        rel func()
+        id  int
+    }
+    results := make(chan res, 5)
+    
+    // First 3 waiters will be canceled
+    canceledCtxs := make([]context.CancelFunc, 0, 3)
+    for i := 0; i < 3; i++ {
+        ctx, cancel := context.WithCancel(context.Background())
+        canceledCtxs = append(canceledCtxs, cancel)
+        go func(id int) {
+            rel, err := l.Wait(ctx)
+            results <- res{err: err, rel: rel, id: id}
+        }(i)
+    }
+
+    // Last 2 waiters will stay waiting
+    for i := 3; i < 5; i++ {
+        go func(id int) {
+            ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+            defer cancel()
+            rel, err := l.Wait(ctx)
+            results <- res{err: err, rel: rel, id: id}
+        }(i)
+    }
+
+    // Wait until all 5 are queued
+    ok := waitForCondition(200*time.Millisecond, func() bool {
+        l.mu.Lock()
+        defer l.mu.Unlock()
+        return len(l.waitQueue) == 5
+    })
+    if !ok {
+        t.Fatalf("waiters did not queue as expected; queued=%d", func() int { 
+            l.mu.Lock(); defer l.mu.Unlock(); return len(l.waitQueue) 
+        }())
+    }
+
+    // Cancel the first 3 waiters
+    for _, cancel := range canceledCtxs {
+        cancel()
+    }
+
+    // Wait for canceled waiters to exit
+    for i := 0; i < 3; i++ {
+        select {
+        case r := <-results:
+            if r.err == nil {
+                t.Fatalf("expected canceled waiter #%d to return error", r.id)
+            }
+        case <-time.After(200 * time.Millisecond):
+            t.Fatalf("canceled waiter #%d did not exit promptly", i)
+        }
+    }
+
+    // Now expire the window and trigger wake-up
+    l.mu.Lock()
+    now := time.Now().Add(l.window * 2)
+    l.removeExpiredLocked(now)
+    l.mu.Unlock()
+
+    // The 2 remaining waiters should be woken up promptly (not blocked by the canceled ones)
+    for i := 0; i < 2; i++ {
+        select {
+        case r := <-results:
+            if r.err != nil || r.rel == nil {
+                t.Fatalf("expected remaining waiter to succeed after expiry; err=%v", r.err)
+            }
+            r.rel()
+        case <-time.After(200 * time.Millisecond):
+            t.Fatalf("remaining waiter #%d not woken after expiry", i)
+        }
+    }
+}

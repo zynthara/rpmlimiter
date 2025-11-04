@@ -237,26 +237,32 @@ func (l *RPMLimiter) Wait(ctx context.Context) (func(), error) {
 			l.stats.WaitingRequests--
 			l.mu.Unlock()
 			continue
-		case <-timer.C:
-			l.mu.Lock()
-			l.stats.WaitingRequests--
-			l.mu.Unlock()
-			continue
-		case <-ctx.Done():
-			timer.Stop()
-			l.mu.Lock()
-			l.stats.WaitingRequests--
-			l.stats.RejectedRequests++
-			l.mu.Unlock()
-			l.release(st)
-			return nil, ctx.Err()
-		case <-l.closedCh:
-			timer.Stop()
-			l.mu.Lock()
-			l.stats.WaitingRequests--
-			l.mu.Unlock()
-			l.release(st)
-			return nil, ErrLimiterClosed
+        case <-timer.C:
+            l.mu.Lock()
+            l.stats.WaitingRequests--
+            // Remove this waiter entry; we'll re-evaluate and enqueue a fresh one if still needed
+            l.removeWaiterLocked(notifyCh)
+            l.mu.Unlock()
+            continue
+        case <-ctx.Done():
+            timer.Stop()
+            l.mu.Lock()
+            l.stats.WaitingRequests--
+            l.stats.RejectedRequests++
+            // Remove this waiter from the queue to avoid stale channels being notified later
+            l.removeWaiterLocked(notifyCh)
+            l.mu.Unlock()
+            l.release(st)
+            return nil, ctx.Err()
+        case <-l.closedCh:
+            timer.Stop()
+            l.mu.Lock()
+            l.stats.WaitingRequests--
+            // Remove this waiter from the queue (limiter is closing)
+            l.removeWaiterLocked(notifyCh)
+            l.mu.Unlock()
+            l.release(st)
+            return nil, ErrLimiterClosed
 		}
 	}
 }
@@ -392,17 +398,7 @@ func (l *RPMLimiter) SetRPM(newRPM int) (old int, err error) {
 	if l.rpm > old {
 		gap := l.rpm - len(l.timestamps)
 		if gap > 0 {
-			if gap > len(l.waitQueue) {
-				gap = len(l.waitQueue)
-			}
-			for i := 0; i < gap; i++ {
-				select {
-				case l.waitQueue[i] <- struct{}{}:
-				default:
-					close(l.waitQueue[i]) // 兜底唤醒
-				}
-			}
-			l.waitQueue = l.waitQueue[gap:]
+			l.notifyWaitersLocked(gap)
 		}
 	}
 
@@ -506,7 +502,13 @@ func (l *RPMLimiter) Close() {
 
 	// 唤醒所有等 RPM 的等待者
 	for _, ch := range l.waitQueue {
-		close(ch)
+		// Safely close channel; it may already be closed if waiter was canceled
+		select {
+		case <-ch:
+			// Already closed, skip
+		default:
+			close(ch)
+		}
 	}
 	l.waitQueue = nil
 	l.mu.Unlock()
@@ -793,21 +795,38 @@ func (l *RPMLimiter) removeExpiredLocked(now time.Time) {
 
 // notifyWaitersLocked 在锁内调用；最多唤醒 count 个等待者（FIFO）
 func (l *RPMLimiter) notifyWaitersLocked(count int) {
-	if count <= 0 || len(l.waitQueue) == 0 {
-		return
-	}
-	if count > len(l.waitQueue) {
-		count = len(l.waitQueue)
-	}
+    if count <= 0 || len(l.waitQueue) == 0 {
+        return
+    }
+    if count > len(l.waitQueue) {
+        count = len(l.waitQueue)
+    }
+    // Non-blocking notify the first 'count' waiters; channels are buffered (size 1) and should accept exactly one signal.
+    for i := 0; i < count; i++ {
+        ch := l.waitQueue[i]
+        select {
+        case ch <- struct{}{}:
+        default:
+            // Already notified; skip
+        }
+    }
+    // Remove processed entries from the queue
+    l.waitQueue = l.waitQueue[count:]
+}
 
-	for i := 0; i < count; i++ {
-		select {
-		case l.waitQueue[i] <- struct{}{}:
-		default:
-			close(l.waitQueue[i]) // 兜底唤醒
-		}
-	}
-	l.waitQueue = l.waitQueue[count:]
+// removeWaiterLocked removes a specific waiter channel from the queue if present.
+// Caller must hold l.mu.
+func (l *RPMLimiter) removeWaiterLocked(target chan struct{}) {
+    if len(l.waitQueue) == 0 {
+        return
+    }
+    for i := range l.waitQueue {
+        if l.waitQueue[i] == target {
+            copy(l.waitQueue[i:], l.waitQueue[i+1:])
+            l.waitQueue = l.waitQueue[:len(l.waitQueue)-1]
+            return
+        }
+    }
 }
 
 // 启动周期性清理（Ticker 方案）
