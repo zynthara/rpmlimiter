@@ -294,3 +294,36 @@ func TestHotSwitchMaxConcurrencyNoLeak(t *testing.T) {
         t.Fatalf("third waiter did not complete after releases")
     }
 }
+
+func TestSetMinConcurrencyBumpsCurrentCap(t *testing.T) {
+    l := NewWithConfig(Config{RPM: 100, MaxConcurrency: 2, Window: time.Second, ClockFunc: time.Now}, nil)
+    t.Cleanup(l.Close)
+
+    if _, err := l.SetMinConcurrency(4); err != nil {
+        t.Fatalf("SetMinConcurrency failed: %v", err)
+    }
+    _, conc, _ := l.GetConfigSnapshot()
+    if conc != 4 {
+        t.Fatalf("expected concurrency bumped to >= min (4); got %d", conc)
+    }
+}
+
+func TestSetMinConcurrencyRejectsInvalid(t *testing.T) {
+    l := NewWithConfig(Config{RPM: 100, MaxConcurrency: 2, Window: time.Second, ClockFunc: time.Now}, nil)
+    t.Cleanup(l.Close)
+    if _, err := l.SetMinConcurrency(0); err == nil {
+        t.Fatalf("expected error for SetMinConcurrency(0)")
+    }
+}
+
+func TestSetMinConcurrencyNoBumpWhenUnlimited(t *testing.T) {
+    l := NewWithConfig(Config{RPM: 100, MaxConcurrency: 0, Window: time.Second, ClockFunc: time.Now}, nil)
+    t.Cleanup(l.Close)
+    if _, err := l.SetMinConcurrency(8); err != nil {
+        t.Fatalf("SetMinConcurrency failed: %v", err)
+    }
+    _, conc, _ := l.GetConfigSnapshot()
+    if conc != 0 { // 0 means unlimited, should not be reduced/bounded by min
+        t.Fatalf("expected concurrency to remain unlimited (0); got %d", conc)
+    }
+}

@@ -39,6 +39,7 @@ rpmlimiter —— 支持动态并发与自动调参的 Go RPM 限流器
 - 动态调参
   - `SetRPM(newRPM int) (old int, err error)` — 运行时安全；上调会按空档唤醒等待者。
   - `SetMaxConcurrency(newMax int) (old int, err error)` — 热切换信号量，不影响在途请求释放。
+  - `SetMinConcurrency(newMin int) (old int, err error)` — 设置自动调参并发下限；若当前并发上限为有限且低于下限，会立即提升至 `newMin`（在途请求安全）。当当前并发为无限制（0）时，不会改为有限上限，仅作为自动调参的下限约束。
   - `StartAutoTune(cfg AutoTuneConfig)` / `StopAutoTune()`。
 - 关闭
   - `Close()` — 唤醒所有等待者并停止后台协程。
@@ -78,7 +79,7 @@ rpmlimiter —— 支持动态并发与自动调参的 Go RPM 限流器
   - `defer l.Close()`
   - `rel, err := l.Wait(ctx); if err != nil { /* 处理错误 */ } defer rel()`
 - 动态调整
-  - `l.SetRPM(900)`；`l.SetMaxConcurrency(128)`
+  - `l.SetRPM(900)`；`l.SetMaxConcurrency(128)`；`l.SetMinConcurrency(32)`
 
 **Makefile**
 - `make build` — 编译所有包。

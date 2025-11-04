@@ -41,6 +41,7 @@ rpmlimiter — Go RPM limiter with dynamic concurrency and auto‑tuning
 - Dynamic tuning
   - `SetRPM(newRPM int) (old int, err error)` — safe at runtime; wakes waiters if capacity increases.
   - `SetMaxConcurrency(newMax int) (old int, err error)` — hot‑switch semaphore without disrupting inflight.
+  - `SetMinConcurrency(newMin int) (old int, err error)` — set auto‑tuner lower bound; bumps current cap up to `newMin` if lower (non‑zero cap).
   - `StartAutoTune(cfg AutoTuneConfig)` / `StopAutoTune()`.
 - Shutdown
   - `Close()` — wakes all waiters and stops background goroutines.

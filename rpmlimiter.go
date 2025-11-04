@@ -416,6 +416,46 @@ func (l *RPMLimiter) SetMaxConcurrency(newMax int) (old int, err error) {
 	return old, nil
 }
 
+// SetMinConcurrency 动态设置自动调参的并发下限（>=1）。
+// - 若当前并发上限（maxConcurrency）小于新下限，则会立即将并发上限提升到 newMin，
+//   以确保实际并发能力不低于该下限（不影响已在进行中的请求）。
+// - 若传入 0 或负数，返回错误。
+// - 若限流器已关闭，返回 ErrLimiterClosed。
+func (l *RPMLimiter) SetMinConcurrency(newMin int) (old int, err error) {
+    if newMin <= 0 {
+        return 0, errors.New("SetMinConcurrency: min must be >= 1")
+    }
+
+    l.mu.Lock()
+    if l.closed {
+        old = l.autoCfg.MinConcurrency
+        l.mu.Unlock()
+        return old, ErrLimiterClosed
+    }
+
+    old = l.autoCfg.MinConcurrency
+    // 更新下限，并确保上限不小于下限
+    l.autoCfg.MinConcurrency = newMin
+    if l.autoCfg.MaxConcurrency < newMin {
+        l.autoCfg.MaxConcurrency = newMin
+    }
+
+    // 如当前并发上限低于新下限且非“无限制(0)”场景，则需要在锁外进行提升
+    bumpNeeded := l.maxConcurrency > 0 && l.maxConcurrency < newMin
+    l.mu.Unlock()
+
+    if bumpNeeded {
+        if _, err := l.SetMaxConcurrency(newMin); err != nil {
+            return old, err
+        }
+    }
+
+    if old != newMin {
+        l.logf("set minConcurrency: %d -> %d", old, newMin)
+    }
+    return old, nil
+}
+
 // GetConfigSnapshot 返回当前（快照）配置
 func (l *RPMLimiter) GetConfigSnapshot() (rpm int, maxConc int, window time.Duration) {
 	l.mu.Lock()
